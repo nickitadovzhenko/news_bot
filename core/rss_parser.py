@@ -1,3 +1,4 @@
+
 import feedparser
 import asyncio
 import aiohttp
@@ -5,6 +6,7 @@ from datetime import datetime
 from typing import List, Dict, Optional
 from bs4 import BeautifulSoup
 import hashlib
+from utils.og_image import fetch_og_image
 
 
 class RSSParser:
@@ -32,13 +34,42 @@ class RSSParser:
                 if last_guid and entry_id == last_guid:
                     break
 
-                parsed_entry = self.parse_entry(entry)
+                parsed_entry = await self.parse_entry_async(entry)
                 if parsed_entry:
                     new_entries.append(parsed_entry)
 
             return new_entries
         except Exception:
             return []
+
+    async def parse_entry_async(self, entry) -> Optional[Dict]:
+        try:
+            content = self.extract_content(entry)
+            media = self.extract_media(entry)
+
+            # If no image found in RSS, try to fetch og:image from article page
+            if not media:
+                link = entry.get('link', '')
+                if link:
+                    og_image = await fetch_og_image(link, self.session)
+                    if og_image:
+                        media = [og_image]
+
+            if not media:
+                return None
+
+            return {
+                'guid': entry.get('id', entry.get('link', '')),
+                'title': entry.get('title', 'No title'),
+                'link': entry.get('link', ''),
+                'content': content,
+                'media': media,
+                'published': entry.get('published_parsed', None),
+                'author': entry.get('author', ''),
+                'tags': [tag.term for tag in entry.get('tags', [])][:5]
+            }
+        except Exception:
+            return None
 
     def parse_entry(self, entry) -> Optional[Dict]:
         try:
