@@ -1,3 +1,4 @@
+
 from aiogram import Router, F, Bot
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.filters import Command, StateFilter
@@ -416,7 +417,10 @@ async def set_schedule(callback: CallbackQuery):
     await schedule_menu(callback)
 
 
-@router.callback_query(F.data.startswith("delete_"))
+
+# Only match delete_{number} (not delete_rss_)
+import re
+@router.callback_query(F.data.regexp(r"^delete_\\d+$"))
 async def delete_channel_confirm(callback: CallbackQuery):
     channel_id = int(callback.data.split("_")[1])
     db = SessionLocal()
@@ -432,7 +436,9 @@ async def delete_channel_confirm(callback: CallbackQuery):
     )
 
 
-@router.callback_query(F.data.startswith("confirm_delete_"))
+
+# Only match confirm_delete_{number} (not confirm_delete_rss_)
+@router.callback_query(F.data.regexp(r"^confirm_delete_\\d+$"))
 async def delete_channel_execute(callback: CallbackQuery):
     channel_id = int(callback.data.split("_")[2])
     db = SessionLocal()
@@ -556,3 +562,48 @@ async def toggle_moderation(callback: CallbackQuery):
         await callback.answer(f"Режим модерации {mode_text}")
         await ai_settings_menu(callback)
     db.close()
+
+
+@router.callback_query(F.data.startswith("delete_rss_"))
+async def delete_rss_source_callback(callback: CallbackQuery):
+    source_id = int(callback.data.split("_")[2])
+    db = SessionLocal()
+    source = db.query(RSSSource).filter(RSSSource.id == source_id).first()
+    if not source:
+        db.close()
+        await callback.answer("Источник не найден", show_alert=True)
+        return
+    channel_id = source.channel_id
+    # Confirm deletion
+    await callback.message.edit_text(
+        f"Вы уверены, что хотите удалить RSS источник '{source.name}'?",
+        reply_markup=InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(text="✅ Да, удалить", callback_data=f"confirm_delete_rss_{source_id}"),
+                    InlineKeyboardButton(text="❌ Отмена", callback_data=f"rss_{channel_id}")
+                ]
+            ]
+        )
+    )
+    db.close()
+
+@router.callback_query(F.data.startswith("confirm_delete_rss_"))
+async def confirm_delete_rss_source(callback: CallbackQuery):
+    source_id = int(callback.data.split("_")[3])
+    db = SessionLocal()
+    source = db.query(RSSSource).filter(RSSSource.id == source_id).first()
+    if not source:
+        db.close()
+        await callback.answer("Источник не найден", show_alert=True)
+        return
+    channel_id = source.channel_id
+    from database.crud import delete_rss_source
+    delete_rss_source(db, source_id)
+    sources = db.query(RSSSource).filter(RSSSource.channel_id == channel_id).all()
+    db.close()
+    await callback.answer("Источник удален", show_alert=True)
+    await callback.message.edit_text(
+        "📰 Ваши RSS-источники:",
+        reply_markup=keyboards.rss_sources_menu(channel_id, sources)
+    )

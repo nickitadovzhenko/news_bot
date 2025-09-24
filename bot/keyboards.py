@@ -36,6 +36,9 @@ class Keyboards:
                 InlineKeyboardButton(
                     text=f"{status} {source.name[:30]}",
                     callback_data=f"source_{source.id}"
+                ),
+                InlineKeyboardButton(
+                    text="🗑️", callback_data=f"delete_rss_{source.id}"
                 )
             ])
 
